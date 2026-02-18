@@ -1,0 +1,254 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyOn8zr80qMeyR6TcTjxexG3",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/mohamedelzaim77/first/blob/main/the%20code%20firstipynb\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torch.optim as optim\n",
+        "from torchvision import datasets, transforms, models\n",
+        "from torch.utils.data import DataLoader\n",
+        "import os\n",
+        "import shutil\n",
+        "import random\n",
+        "\n",
+        "DATA_DIR    = r\"/content/dataset\"\n",
+        "NUM_CLASSES = 2\n",
+        "BATCH_SIZE  = 32\n",
+        "EPOCHS      = 10\n",
+        "LR          = 0.001\n",
+        "DEVICE      = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "\n",
+        "# --- Data Reorganization Logic Start ---\n",
+        "# Define paths for reorganized data\n",
+        "source_base_dir = DATA_DIR\n",
+        "train_dir = os.path.join(DATA_DIR, \"train\")\n",
+        "val_dir = os.path.join(DATA_DIR, \"val\")\n",
+        "\n",
+        "# Create train and val directories if they don't exist\n",
+        "os.makedirs(train_dir, exist_ok=True)\n",
+        "os.makedirs(val_dir, exist_ok=True)\n",
+        "\n",
+        "# Get list of class folders (e.g., 'dogs_set', 'cats_set')\n",
+        "# Filter out 'train' and 'val' if they were created in a previous run but are empty\n",
+        "class_folders = [f for f in os.listdir(source_base_dir) if os.path.isdir(os.path.join(source_base_dir, f)) and f not in ['train', 'val']]\n",
+        "\n",
+        "# Only reorganize if the class folders actually contain files and the train/val directories are not yet populated\n",
+        "if class_folders and not os.listdir(train_dir):\n",
+        "    for class_folder in class_folders:\n",
+        "        class_path = os.path.join(source_base_dir, class_folder)\n",
+        "        images = [os.path.join(class_path, img) for img in os.listdir(class_path) if img.lower().endswith(('.png', '.jpg', '.jpeg'))]\n",
+        "        random.shuffle(images)\n",
+        "\n",
+        "        train_split_idx = int(0.8 * len(images))\n",
+        "        train_images = images[:train_split_idx]\n",
+        "        val_images = images[train_split_idx:]\n",
+        "\n",
+        "        # Create class subdirectories in train and val\n",
+        "        os.makedirs(os.path.join(train_dir, class_folder), exist_ok=True)\n",
+        "        os.makedirs(os.path.join(val_dir, class_folder), exist_ok=True)\n",
+        "\n",
+        "        # Move images to train directory\n",
+        "        for img_path in train_images:\n",
+        "            dest_path = os.path.join(train_dir, class_folder, os.path.basename(img_path))\n",
+        "            shutil.move(img_path, dest_path)\n",
+        "\n",
+        "        # Move images to val directory\n",
+        "        for img_path in val_images:\n",
+        "            dest_path = os.path.join(val_dir, class_folder, os.path.basename(img_path))\n",
+        "            shutil.move(img_path, dest_path)\n",
+        "\n",
+        "    print(f\"Data reorganized into train and val directories within {DATA_DIR}\")\n",
+        "else:\n",
+        "    print(\"Data already organized or no class folders found for reorganization.\")\n",
+        "# --- Data Reorganization Logic End ---\n",
+        "\n",
+        "train_transform = transforms.Compose([\n",
+        "    transforms.Resize((224, 224)),\n",
+        "    transforms.RandomHorizontalFlip(),\n",
+        "    transforms.ToTensor(),\n",
+        "    transforms.Normalize(mean=[0.485, 0.456, 0.406],\n",
+        "                         std=[0.229, 0.224, 0.225])\n",
+        "])\n",
+        "\n",
+        "val_transform = transforms.Compose([\n",
+        "    transforms.Resize((224, 224)),\n",
+        "    transforms.ToTensor(),\n",
+        "    transforms.Normalize(mean=[0.485, 0.456, 0.406],\n",
+        "                         std=[0.229, 0.224, 0.225])\n",
+        "])\n",
+        "\n",
+        "train_dataset = datasets.ImageFolder(root=DATA_DIR + \"/train\", transform=train_transform)\n",
+        "val_dataset   = datasets.ImageFolder(root=DATA_DIR + \"/val\",   transform=val_transform)\n",
+        "\n",
+        "train_loader  = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)\n",
+        "val_loader    = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False)\n",
+        "\n",
+        "print(f\"Classes : {train_dataset.classes}\")\n",
+        "print(f\"Train samples : {len(train_dataset)} | Val samples : {len(val_dataset)}\")\n",
+        "\n",
+        "model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)\n",
+        "\n",
+        "for param in model.parameters():\n",
+        "    param.requires_grad = False\n",
+        "\n",
+        "in_features = model.fc.in_features\n",
+        "model.fc    = nn.Linear(in_features, NUM_CLASSES)\n",
+        "model       = model.to(DEVICE)\n",
+        "\n",
+        "criterion = nn.CrossEntropyLoss()\n",
+        "optimizer = optim.Adam(model.fc.parameters(), lr=LR)\n",
+        "\n",
+        "for epoch in range(1, EPOCHS + 1):\n",
+        "\n",
+        "    model.train()\n",
+        "    train_loss    = 0.0\n",
+        "    train_correct = 0\n",
+        "\n",
+        "    for images, labels in train_loader:\n",
+        "        images, labels = images.to(DEVICE), labels.to(DEVICE)\n",
+        "        optimizer.zero_grad()\n",
+        "        outputs = model(images)\n",
+        "        loss    = criterion(outputs, labels)\n",
+        "        loss.backward()\n",
+        "        optimizer.step()\n",
+        "        train_loss    += loss.item() * images.size(0)\n",
+        "        train_correct += (outputs.argmax(dim=1) == labels).sum().item()\n",
+        "\n",
+        "    train_loss /= len(train_dataset)\n",
+        "    train_acc   = train_correct / len(train_dataset)\n",
+        "\n",
+        "    model.eval()\n",
+        "    val_loss    = 0.0\n",
+        "    val_correct = 0\n",
+        "\n",
+        "    with torch.no_grad():\n",
+        "        for images, labels in val_loader:\n",
+        "            images, labels = images.to(DEVICE), labels.to(DEVICE)\n",
+        "            outputs = model(images)\n",
+        "            loss    = criterion(outputs, labels)\n",
+        "            val_loss    += loss.item() * images.size(0)\n",
+        "            val_correct += (outputs.argmax(dim=1) == labels).sum().item()\n",
+        "\n",
+        "    val_loss /= len(val_dataset)\n",
+        "    val_acc   = val_correct / len(val_dataset)\n",
+        "\n",
+        "    print(f\"Epoch [{epoch}/{EPOCHS}]  \"\n",
+        "          f\"Train Loss: {train_loss:.4f}  Train Acc: {train_acc*100:.2f}%  |  \"\n",
+        "          f\"Val Loss: {val_loss:.4f}  Val Acc: {val_acc*100:.2f}%\")\n",
+        "\n",
+        "torch.save(model.state_dict(), \"resnet50_finetuned.pth\")\n",
+        "print(\"\\nModel saved to resnet50_finetuned.pth\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "9v3PdH4pfg7F",
+        "outputId": "853e285f-4ca3-4cee-e2ad-caafd1a70560"
+      },
+      "execution_count": 5,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Data reorganized into train and val directories within /content/dataset\n",
+            "Classes : ['cats_set', 'dogs_set']\n",
+            "Train samples : 800 | Val samples : 200\n",
+            "Downloading: \"https://download.pytorch.org/models/resnet50-11ad3fa6.pth\" to /root/.cache/torch/hub/checkpoints/resnet50-11ad3fa6.pth\n"
+          ]
+        },
+        {
+          "output_type": "stream",
+          "name": "stderr",
+          "text": [
+            "100%|██████████| 97.8M/97.8M [00:01<00:00, 74.5MB/s]\n"
+          ]
+        },
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Epoch [1/10]  Train Loss: 0.3824  Train Acc: 89.38%  |  Val Loss: 0.1910  Val Acc: 99.00%\n",
+            "Epoch [2/10]  Train Loss: 0.1620  Train Acc: 97.62%  |  Val Loss: 0.1239  Val Acc: 99.00%\n",
+            "Epoch [3/10]  Train Loss: 0.1088  Train Acc: 97.62%  |  Val Loss: 0.0989  Val Acc: 99.50%\n",
+            "Epoch [4/10]  Train Loss: 0.0866  Train Acc: 98.50%  |  Val Loss: 0.0867  Val Acc: 99.50%\n",
+            "Epoch [5/10]  Train Loss: 0.0710  Train Acc: 98.88%  |  Val Loss: 0.0803  Val Acc: 99.50%\n",
+            "Epoch [6/10]  Train Loss: 0.0657  Train Acc: 98.25%  |  Val Loss: 0.0770  Val Acc: 99.50%\n",
+            "Epoch [7/10]  Train Loss: 0.0503  Train Acc: 99.62%  |  Val Loss: 0.0708  Val Acc: 99.50%\n",
+            "Epoch [8/10]  Train Loss: 0.0516  Train Acc: 98.88%  |  Val Loss: 0.0688  Val Acc: 99.50%\n",
+            "Epoch [9/10]  Train Loss: 0.0480  Train Acc: 99.00%  |  Val Loss: 0.0681  Val Acc: 99.50%\n",
+            "Epoch [10/10]  Train Loss: 0.0367  Train Acc: 99.75%  |  Val Loss: 0.0666  Val Acc: 99.50%\n",
+            "\n",
+            "Model saved to resnet50_finetuned.pth\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "0eb0340d",
+        "outputId": "d41e3a30-8dfe-4abd-a142-75d543c62037"
+      },
+      "source": [
+        "import zipfile\n",
+        "import os\n",
+        "\n",
+        "zip_file_path = '/content/archive.zip'\n",
+        "output_dir = '/content/dataset'\n",
+        "\n",
+        "# Create the output directory if it doesn't exist\n",
+        "os.makedirs(output_dir, exist_ok=True)\n",
+        "\n",
+        "# Unzip the file\n",
+        "with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:\n",
+        "    zip_ref.extractall(output_dir)\n",
+        "\n",
+        "print(f'Archive extracted to: {output_dir}')\n",
+        "print(f'Contents of {output_dir}: {os.listdir(output_dir)}')"
+      ],
+      "execution_count": 4,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Archive extracted to: /content/dataset\n",
+            "Contents of /content/dataset: ['dogs_set', 'cats_set']\n"
+          ]
+        }
+      ]
+    }
+  ]
+}
